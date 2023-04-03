@@ -50,7 +50,7 @@ def load_model(cfg):
 
 # -- default pairs --
 def arch_pairs():
-    pairs = {"arch_subname":"vit","vit_mode":"dnls"}
+    pairs = {"arch_subname":"vit","vit_mode":"default"}
     return pairs
 
 def io_pairs():
