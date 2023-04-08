@@ -12,7 +12,8 @@ import numpy as np
 import pandas as pd
 
 # -- testing --
-from dev_basics.trte import test
+# from dev_basics.trte import test
+from mvit.trte import test
 
 # -- plotting --
 # import apsearch

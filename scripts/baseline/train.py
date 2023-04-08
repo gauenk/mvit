@@ -11,9 +11,10 @@ Compare the impact of train/test using exact/refineimate methods
 import os
 import numpy as np
 import pandas as pd
+from easydict import EasyDict as edict
 
 # -- testing --
-from dev_basics.trte import train
+from mvit.trte import train
 
 # -- caching results --
 import cache_io
@@ -30,7 +31,17 @@ def main():
         return False
     exps,uuids = cache_io.train_stages.run("exps/baseline/train.cfg",
                                            ".cache_io_exps/baseline/train/")
-    results = cache_io.run_exps(exps,train.run,uuids=uuids,
+    cfg = edict({
+        "dname":"coco",
+        "device":"cuda:0",
+        "ndevices":1,
+        "use_amp":False,
+        "log_root":"./output/train/baseline/logs",
+        "chkpt_root":"./output/train/baseline/checkpoints",
+        "nepochs":10,
+        "subdir":"baseline",
+    })
+    results = cache_io.run_exps([cfg],train.run,#uuids=uuids,
                                 name=".cache_io/baseline/train",
                                 version="v1",skip_loop=False,clear_fxn=clear_fxn,
                                 clear=False,enable_dispatch="slurm",
