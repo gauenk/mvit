@@ -34,20 +34,39 @@ def get_model(arch_subname):
     # -- wrap forward model --
     model.flows = None
     _forward = model.forward
-    def forward(self,vid,flows=None):
+    def forward(self,in_dict,flows=None):
+
+        # -- set flows --
         for attn in attn_layers:
             attn.flows = flows
-        B = vid.shape[0]
-        vid = rearrange(vid,'b t c h w -> (b t) c h w')
-        in_dict = [{"image":vid[b]} for b in range(B)]
-        preds = _forward(in_dict)
-        inst = [preds['instances'][b] for b in range(B)]
-        cls = [preds['pred_classes'][b] for b in range(B)]
-        masks = [preds['pred_masks'][b] for b in range(B)]
-        boxes = [preds['pred_boxes'][b] for b in range(B)]
-        scores = [preds['scores'][b] for b in range(B)]
-        preds ={"inst":inst,"cls":cls,"masks":masks,"boxes":boxes,"scores":scores}
-        return preds
+
+        # keys: file_name, height, width, image_id, image
+        # # -- format input --
+        # B = vid.shape[0]
+        # vid = rearrange(vid,'b t c h w -> (b t) c h w')*255.
+        # # print("vid.shape: ",vid.shape)
+        # in_dict = [{"image":vid[b]} for b in range(B)]
+
+        # -- get preds --
+        preds_raw = _forward(in_dict)
+        # print(preds_raw)
+        # import pickle
+        # with open("tmp.pkl","wb") as f:
+        #     pickle.dump(preds_raw,f)
+
+        # # -- transpose preds --
+        # # keys = ["instances","pred_classes","pred_masks","pred_boxes","scores"]
+        # keys1 = list(preds_raw[0]['instances'].keys())
+        # # keys1 = ["instances","pred_classes","pred_masks","pred_boxes","scores"]
+        # preds = {}
+        # for key in keys:
+        #     preds[key] = [preds_raw[b]['instances'][key] for b in range(B)]
+        #     if hasattr(preds[key],"shape"):
+        #         print(key,preds[key].shape)
+        #     else:
+        #         print(key,len(preds[key]))
+        return preds_raw
+
     model.forward = partial(forward,model)
 
     return model

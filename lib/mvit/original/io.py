@@ -41,12 +41,22 @@ def load_model(cfg):
     model = model.to(device)
     model.eval()
 
+    # -- load model --
+    load_pretrained(model,cfgs.io)
+
     # -- test --
-    rand_vid = th.randn((1,5,3,64,64))
-    flows = {"fflow":th.randn((1,5,2,64,64)),"bflow":th.randn((1,5,2,64,64))}
-    out = model(rand_vid,flows=flows)
+    # rand_vid = th.randn((1,5,3,64,64))
+    # flows = {"fflow":th.randn((1,5,2,64,64)),"bflow":th.randn((1,5,2,64,64))}
+    # out = model(rand_vid,flows=flows)
 
     return model
+
+def load_pretrained(model,cfg):
+    if cfg.pretrained_load:
+        print("Loading model: ",cfg.pretrained_path)
+        cfg.pretrained_root = cfg.pretrained_root
+        arch_io.load_checkpoint(model,cfg.pretrained_path,
+                                cfg.pretrained_root,cfg.pretrained_type)
 
 # -- default pairs --
 def arch_pairs():
