@@ -1,4 +1,26 @@
 
+import logging
+
+from detectron2.checkpoint import DetectionCheckpointer
+from detectron2.config import LazyConfig, instantiate
+from detectron2.engine import (
+    AMPTrainer,
+    SimpleTrainer,
+    default_argument_parser,
+    default_setup,
+    default_writers,
+    hooks,
+    launch,
+)
+from detectron2.engine.defaults import create_ddp_model
+from detectron2.evaluation import inference_on_dataset, print_csv_format
+from detectron2.utils import comm
+
+logger = logging.getLogger("detectron2")
+
+# -- local --
+import mvit
+
 def run(cfg):
     """
     Args:
@@ -18,23 +40,36 @@ def run(cfg):
                 checkpointer (dict)
                 ddp (dict)
     """
-    model = instantiate(cfg.model)
-    logger = logging.getLogger("detectron2")
-    logger.info("Model:\n{}".format(model))
-    model.to(cfg.train.device)
 
+    # -- init logger --
+    logger = logging.getLogger("detectron2")
+
+    # -- load model --
+    model = mvit.load_model(cfg)
+    logger.info("Model:\n{}".format(model))
+    model.to(cfg.device)
+
+    # -- init optimizer --
     cfg.optimizer.params.model = model
     optim = instantiate(cfg.optimizer)
 
+    # -- init data loader --
     train_loader = instantiate(cfg.dataloader.train)
 
+    # -- ddp --
     model = create_ddp_model(model, **cfg.train.ddp)
+
+    # -- create trainer -
     trainer = (AMPTrainer if cfg.train.amp.enabled else SimpleTrainer)(model, train_loader, optim)
+
+    # -- checkpoint --
     checkpointer = DetectionCheckpointer(
         model,
         cfg.train.output_dir,
         trainer=trainer,
     )
+
+    # -- hooks --
     trainer.register_hooks(
         [
             hooks.IterationTimer(),
@@ -52,12 +87,15 @@ def run(cfg):
         ]
     )
 
-    checkpointer.resume_or_load(cfg.train.init_checkpoint, resume=args.resume)
-    if args.resume and checkpointer.has_checkpoint():
+    # -- resume --
+    checkpointer.resume_or_load(cfg.pretrained_path,cfg.pretrained_load)
+    if cfg.pretrained_load and checkpointer.has_checkpoint():
         # The checkpoint stores the training iteration that just finished, thus we start
         # at the next iteration
         start_iter = trainer.iter + 1
     else:
         start_iter = 0
-    trainer.train(start_iter, cfg.train.max_iter)
+
+    # -- init --
+    trainer.train(start_iter, cfg.niters)
 
