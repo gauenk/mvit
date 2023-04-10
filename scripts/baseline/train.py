@@ -40,6 +40,8 @@ def main():
         "chkpt_root":"./output/train/baseline/checkpoints",
         "nepochs":10,
         "subdir":"baseline",
+        "lr_init":0.0001,
+        "weight_decay":0.
     })
     results = cache_io.run_exps([cfg],train.run,#uuids=uuids,
                                 name=".cache_io/baseline/train",

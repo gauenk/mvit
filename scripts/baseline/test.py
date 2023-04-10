@@ -12,8 +12,8 @@ import numpy as np
 import pandas as pd
 
 # -- testing --
-# from dev_basics.trte import test
-from mvit.trte import test
+from dev_basics.trte import test
+# from mvit.trte import test
 
 # -- plotting --
 # import apsearch
@@ -31,12 +31,10 @@ def main():
     print("PID: ",pid)
 
     # -- get/run experiments --
-    def clear_fxn(num,cfg):
-        return False
+    def clear_fxn(num,cfg): return False
     read_test = cache_io.read_test_config.run
     exps = read_test("exps/baseline/test.cfg",
-                     cache_name=".cache_io_exps/baseline/test",
-                     cache_reset=False)
+                     ".cache_io_exps/baseline/test")#,reset=True)
     exps,uuids = cache_io.get_uuids(exps,".cache_io/baseline/test",
                                     no_config_check=False)
 

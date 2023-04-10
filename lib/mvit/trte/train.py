@@ -3,7 +3,17 @@
 import logging
 import copy
 dcopy = copy.deepcopy
+from pathlib import Path
 
+import torch as th
+
+import data_hub
+from .coco import dataloader
+
+from fvcore.common.param_scheduler import MultiStepParamScheduler
+from detectron2.config import LazyCall as L
+from detectron2.solver import WarmupParamScheduler
+# from detectron2.modeling.backbone.vit import get_vit_lr_decay_rate
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.config import LazyConfig, instantiate
 from detectron2.engine import (
@@ -52,7 +62,7 @@ def run(cfg):
              "chkpt_nkeep":11,
              "log_period":10,
              "eval_period":500,
-             "niters":100,}
+             "niters":1000,}
     cfg = dcopy(cfg)
     for key,val in pairs.items():
         cfg[key] = val
@@ -72,7 +82,18 @@ def run(cfg):
     # optim = instantiate(cfg.optimizer)
 
     # -- init data loader --
-    train_loader = get_dataloader(cfg)
+    # train_loader = get_dataloader(cfg)
+    # print(train_loader)
+    # print(list(dataloader.keys()))
+    # train_loader = dataloader['train'].dataset.names
+    dataloader.train.total_batch_size = 2
+    train_loader = instantiate(dataloader.train)
+    # print(dir(dataloader['train']))
+    # print(dir(dataloader['train'].dataset))
+    # print(type(train_loader))
+
+    # -- lr-mult --
+    lr_mult = get_lr_mult(cfg.niters)
 
     # -- ddp --
     model = create_ddp_model(model)#, **cfg.train.ddp)
@@ -84,21 +105,22 @@ def run(cfg):
     checkpointer = DetectionCheckpointer(
         model,cfg.chkpt_root,trainer=trainer,
     )
-
+    if not Path(cfg.chkpt_root).exists():
+        Path(cfg.chkpt_root).mkdir(parents=True)
 
     # -- hooks --
     trainer.register_hooks(
         [
             hooks.IterationTimer(),
-            hooks.LRScheduler(scheduler=instantiate(cfg.lr_multiplier)),
+            hooks.LRScheduler(scheduler=instantiate(lr_mult)),
             hooks.PeriodicCheckpointer(checkpointer, cfg.chkpt_period,
-                                       cfg.nepochs,cfg.chkpt_nkeep,
+                                       cfg.niters,cfg.chkpt_nkeep,
                                        cfg.subdir)
             if comm.is_main_process()
             else None,
             hooks.EvalHook(cfg.eval_period, lambda: do_test(cfg, model)),
             hooks.PeriodicWriter(
-                default_writers(cfg.log_root, cfg.nepochs),
+                default_writers(cfg.log_root, cfg.niters),
                 period=cfg.log_period,
             )
             if comm.is_main_process()
@@ -121,9 +143,58 @@ def run(cfg):
     trainer.train(start_iter, cfg.niters)
 
 def get_dataloader(cfg):
-    loader = None
-    return loader
+    data,loaders = data_hub.sets.load(cfg)
+    return loaders.tr
+
+def get_lr_mult(max_iter):
+    lr_multiplier = L(WarmupParamScheduler)(
+        scheduler=L(MultiStepParamScheduler)(
+            # values=[1.0, 0.1, 0.01],
+            values=[1.0, 0.1, 0.01],
+            # milestones=[163889, 177546],
+            milestones=[50,100],
+            num_updates=max_iter,
+        ),
+        warmup_length=250 / max_iter,
+        warmup_factor=0.001,
+    )
+    return lr_multiplier
 
 def get_optimizer(cfg,model):
-    optimizer = None
-    return optimizer
+    optim = th.optim.Adam(model.parameters(),lr=cfg.lr_init,
+                          weight_decay=cfg.weight_decay)
+
+    return optim
+
+# from detectron2.config import LazyCall as L
+# from detectron2.solver import WarmupParamScheduler
+# from detectron2.modeling.backbone.vit import get_vit_lr_decay_rate
+
+# from ..common.coco_loader_lsj import dataloader
+
+
+# model = model_zoo.get_config("common/models/mask_rcnn_vitdet.py").model
+
+# # Initialization and trainer settings
+# train = model_zoo.get_config("common/train.py").train
+# train.amp.enabled = True
+# train.ddp.fp16_compression = True
+# train.init_checkpoint = (
+#     "detectron2://ImageNetPretrained/MAE/mae_pretrain_vit_base.pth?matching_heuristics=True"
+# )
+
+
+# # Schedule
+# # 100 ep = 184375 iters * 64 images/iter / 118000 images/ep
+# train.max_iter = 184375
+
+# lr_multiplier = L(WarmupParamScheduler)(
+#     scheduler=L(MultiStepParamScheduler)(
+#         values=[1.0, 0.1, 0.01],
+#         milestones=[163889, 177546],
+#         num_updates=train.max_iter,
+#     ),
+#     warmup_length=250 / train.max_iter,
+#     warmup_factor=0.001,
+# )
+

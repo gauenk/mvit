@@ -67,7 +67,8 @@ def get_model(arch_subname):
         #         print(key,len(preds[key]))
         return preds_raw
 
-    model.forward = partial(forward,model)
+    # model.forward = partial(forward,model)
+    model = model.train()
 
     return model
 
