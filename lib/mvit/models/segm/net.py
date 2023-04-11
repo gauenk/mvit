@@ -16,14 +16,18 @@ def get_model(arch_subname):
 
     # -- init arch subname --
     if arch_subname.startswith("vit"):
-        model = get_vit_model(arch_subname)
+        model_cfg = get_vit_model(arch_subname)
     elif arch_subname.startswith("mvit"):
-        model = get_mvit_model(arch_subname)
+        model_cfg = get_mvit_model(arch_subname)
     else:
         raise ValueError(f"Uknown arch_subname [{arch_subname}]")
 
     # -- create model --
-    model = instantiate(model) # config -> model
+    # print(arch_subname)
+    # print(model_cfg)
+    model = instantiate(model_cfg) # config -> model
+    # print(model)
+    # exit(0)
 
     # -- get attn layers --
     attn_layers = []
@@ -75,9 +79,12 @@ def get_model(arch_subname):
 def get_vit_model(arch_subname):
 
     # -- load base --
+    # arch_subname
+    # model = model_zoo.get_config("common/models/mask_rcnn_vitstnls.py").model
     model = model_zoo.get_config("common/models/mask_rcnn_vitdet.py").model
 
-    if arch_subname.endswith("_b"):
+    # print("[get_vid_model] arch_subname: ",arch_subname)
+    if arch_subname.endswith("_l"):
         model.backbone.net.embed_dim = 1024
         model.backbone.net.depth = 24
         model.backbone.net.num_heads = 16
@@ -87,6 +94,31 @@ def get_vit_model(arch_subname):
             list(range(0, 5)) + list(range(6, 11)) + \
             list(range(12, 17)) + list(range(18, 23))
         )
+    elif arch_subname.endswith("_t"):
+        model.backbone.net.embed_dim = 9
+        model.backbone.net.depth = 10
+        model.backbone.net.num_heads = 2
+        model.backbone.net.drop_path_rate = 0.1
+        # 3,7 for global attention
+        model.backbone.net.window_block_indexes = (
+            list(range(0, 2))
+            + list(range(4, 6))
+            + list(range(8, 9))
+        )
+        model.backbone.net.attn_type = "default"
+    elif arch_subname.endswith("_s"):
+        model.backbone.net.embed_dim = 9
+        model.backbone.net.depth = 10
+        model.backbone.net.num_heads = 2
+        model.backbone.net.drop_path_rate = 0.1
+        model.backbone.net.attn_type = "space"
+        # 5, 11, 17, 23 for global attention
+    elif arch_subname.endswith("_n"):
+        model.backbone.net.embed_dim = 9
+        model.backbone.net.depth = 10
+        model.backbone.net.num_heads = 2
+        model.backbone.net.drop_path_rate = 0.1
+        model.backbone.net.attn_type = "space-time"
     elif arch_subname.endswith("_h"):
         model.backbone.net.embed_dim = 1280
         model.backbone.net.depth = 32

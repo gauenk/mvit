@@ -27,10 +27,11 @@ def main():
     print("PID: ",pid)
 
     # -- get/run experiments --
-    def clear_fxn(num,cfg):
-        return False
+    def clear_fxn(num,cfg): return False
     exps,uuids = cache_io.train_stages.run("exps/baseline/train.cfg",
                                            ".cache_io_exps/baseline/train/")
+    # 100 ep = 184375 iters * 64 images/iter / 118000 images/ep
+    # train.max_iter = 184375
     cfg = edict({
         "dname":"coco",
         "device":"cuda:0",
@@ -41,7 +42,8 @@ def main():
         "nepochs":10,
         "subdir":"baseline",
         "lr_init":0.0001,
-        "weight_decay":0.
+        "weight_decay":0.,
+        "arch_subname":"vit_l",
     })
     results = cache_io.run_exps([cfg],train.run,#uuids=uuids,
                                 name=".cache_io/baseline/train",

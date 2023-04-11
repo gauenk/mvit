@@ -42,6 +42,10 @@ def load_model(cfg):
     model.eval()
 
     # -- load model --
+    # cfgs.io.pretrained_load = True
+    # cfgs.io.pretrained_root = "../detectron2/"
+    # cfgs.io.pretrained_path = "model_final_1a1c30.pkl"
+    # print(cfgs.io)
     load_pretrained(model,cfgs.io)
 
     # -- test --
@@ -64,11 +68,11 @@ def arch_pairs():
     return pairs
 
 def io_pairs():
-    base = Path("weights/checkpoints/")
-    pretrained_path = base / "model/model_best.pt"
+    base = Path(".")
+    pretrained_path = base / "weights/model_final_1a1c30.pkl"
     pairs = {"pretrained_load":False,
              "pretrained_path":str(pretrained_path),
-             "pretrained_type":"lit",
+             "pretrained_type":"npy",
              "pretrained_root":"."}
     return pairs
 

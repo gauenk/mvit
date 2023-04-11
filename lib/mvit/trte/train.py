@@ -5,6 +5,7 @@ import copy
 dcopy = copy.deepcopy
 from pathlib import Path
 
+import numpy as np
 import torch as th
 
 import data_hub
@@ -25,6 +26,7 @@ from detectron2.engine import (
     hooks,
     launch,
 )
+from detectron2 import model_zoo
 from detectron2.engine.defaults import create_ddp_model
 from detectron2.evaluation import inference_on_dataset, print_csv_format
 from detectron2.utils import comm
@@ -62,7 +64,8 @@ def run(cfg):
              "chkpt_nkeep":11,
              "log_period":10,
              "eval_period":500,
-             "niters":1000,}
+             "niters":10000,
+             "use_amp":False}
     cfg = dcopy(cfg)
     for key,val in pairs.items():
         cfg[key] = val
@@ -86,17 +89,20 @@ def run(cfg):
     # print(train_loader)
     # print(list(dataloader.keys()))
     # train_loader = dataloader['train'].dataset.names
-    dataloader.train.total_batch_size = 2
+    dataloader.train.total_batch_size = 1
     train_loader = instantiate(dataloader.train)
     # print(dir(dataloader['train']))
     # print(dir(dataloader['train'].dataset))
     # print(type(train_loader))
 
+    # -- train info --
+    train_info = get_train_info()
+
     # -- lr-mult --
     lr_mult = get_lr_mult(cfg.niters)
 
     # -- ddp --
-    model = create_ddp_model(model)#, **cfg.train.ddp)
+    model = create_ddp_model(model, **train_info.ddp)
 
     # -- create trainer -
     trainer = (AMPTrainer if cfg.use_amp else SimpleTrainer)(model, train_loader, optim)
@@ -113,22 +119,60 @@ def run(cfg):
         [
             hooks.IterationTimer(),
             hooks.LRScheduler(scheduler=instantiate(lr_mult)),
-            hooks.PeriodicCheckpointer(checkpointer, cfg.chkpt_period,
-                                       cfg.niters,cfg.chkpt_nkeep,
-                                       cfg.subdir)
+            hooks.PeriodicCheckpointer(checkpointer, **train_info.checkpointer)
             if comm.is_main_process()
             else None,
-            hooks.EvalHook(cfg.eval_period, lambda: do_test(cfg, model)),
+            hooks.EvalHook(train_info.eval_period, lambda: do_test(cfg, model)),
             hooks.PeriodicWriter(
-                default_writers(cfg.log_root, cfg.niters),
-                period=cfg.log_period,
+                default_writers(train_info.output_dir, train_info.max_iter),
+                period=train_info.log_period,
             )
             if comm.is_main_process()
             else None,
         ]
     )
+    print(trainer)
+    # trainer.register_hooks(
+    #     [
+    #         hooks.IterationTimer(),
+    #         hooks.LRScheduler(scheduler=instantiate(cfg.lr_multiplier)),
+    #         hooks.PeriodicCheckpointer(checkpointer, **cfg.train.checkpointer)
+    #         if comm.is_main_process()
+    #         else None,
+    #         hooks.EvalHook(cfg.train.eval_period, lambda: do_test(cfg, model)),
+    #         hooks.PeriodicWriter(
+    #             default_writers(cfg.train.output_dir, cfg.train.max_iter),
+    #             period=cfg.train.log_period,
+    #         )
+    #         if comm.is_main_process()
+    #         else None,
+    #     ]
+    # )
+
+    # trainer.register_hooks(
+    #     [
+    #         hooks.IterationTimer(),
+    #         hooks.LRScheduler(scheduler=instantiate(lr_mult)),
+    #         hooks.PeriodicCheckpointer(checkpointer, cfg.chkpt_period,
+    #                                    cfg.niters,cfg.chkpt_nkeep,
+    #                                    cfg.subdir)
+    #         if comm.is_main_process()
+    #         else None,
+    #         hooks.EvalHook(cfg.eval_period, lambda: do_test(cfg, model)),
+    #         hooks.PeriodicWriter(
+    #             default_writers(cfg.log_root, cfg.niters),
+    #             period=cfg.log_period,
+    #         )
+    #         if comm.is_main_process()
+    #         else None,
+    #     ]
+    # )
 
     # -- resume --
+    params = list(model.parameters())
+    L = len(params)
+    params_og = [params[i].clone() for i in range(len(params))]
+    checkpointer.resume_or_load(train_info.init_checkpoint, resume=False)
     # checkpointer.resume_or_load(cfg.pretrained_path,cfg.pretrained_load)
     # checkpointer.resume_or_load(cfg.pretrained_path,cfg.pretrained_load)
     # if cfg.pretrained_load and checkpointer.has_checkpoint():
@@ -138,6 +182,9 @@ def run(cfg):
     # else:
     #     start_iter = 0
     start_iter = 0
+    print(np.mean([th.mean((params_og[i] - params[i])**2).item() for i in range(L)]))
+
+    # exit(0)
 
     # -- init --
     trainer.train(start_iter, cfg.niters)
@@ -165,6 +212,22 @@ def get_optimizer(cfg,model):
                           weight_decay=cfg.weight_decay)
 
     return optim
+
+def get_train_info():
+    train = model_zoo.get_config("common/train.py").train
+    train.amp.enabled = True
+    train.ddp.fp16_compression = True
+    train.init_checkpoint = (
+        "detectron2://ImageNetPretrained/MAE/mae_pretrain_vit_large.pth?matching_heuristics=True"
+    )
+    # train.init_checkpoint = (
+    #     "detectron2://ImageNetPretrained/MAE/mae_pretrain_vit_base.pth?matching_heuristics=True"
+    # )
+
+    # Schedule
+    # 100 ep = 184375 iters * 64 images/iter / 118000 images/ep
+    train.max_iter = 184375
+    return train
 
 # from detectron2.config import LazyCall as L
 # from detectron2.solver import WarmupParamScheduler
