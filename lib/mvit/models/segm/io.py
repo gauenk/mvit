@@ -12,6 +12,7 @@ from easydict import EasyDict as edict
 from dev_basics import arch_io
 
 # -- network --
+import stnls
 from .net import get_model
 
 # -- configs --
@@ -29,15 +30,23 @@ def load_model(cfg):
 
     # -- unpack local vars --
     local_pairs = {"io":io_pairs(),
-                   "arch":arch_pairs()}
+                   "arch":arch_pairs(),
+                   "attn":attn_pairs()}
     cfgs = econfig.extract_dict_of_pairs(cfg,local_pairs,restrict=True)
     cfg = dcat(cfg,econfig.flatten(cfgs)) # update cfg
+    cfg.nheads = cfg.num_heads
+    dep_pairs = {"normz":stnls.normz.econfig,
+                 "agg":stnls.agg.econfig}
+    cfgs = dcat(cfgs,econfig.extract_dict_of_econfigs(cfg,dep_pairs))
+    cfg = dcat(cfg,econfig.flatten(cfgs))
+    cfgs.search = stnls.search.extract_config(cfg)
+    cfg = dcat(cfg,econfig.flatten(cfgs))
 
     # -- end init --
     if econfig.is_init: return
 
     # -- load model --
-    model = get_model(cfg.arch_subname)
+    model = get_model(cfgs)#.arch)
     model = model.to(device)
     model.eval()
 
@@ -64,7 +73,10 @@ def load_pretrained(model,cfg):
 
 # -- default pairs --
 def arch_pairs():
-    pairs = {"arch_subname":"vit","vit_mode":"default"}
+    pairs = {"embed_dim":9,"depth":3,"num_heads":2,"drop_path_rate":0.1,
+             "attn_type":"stnls","in_feature":3,
+             "input_proj_depth":3,"output_proj_depth":3,
+    }
     return pairs
 
 def io_pairs():
@@ -76,3 +88,10 @@ def io_pairs():
              "pretrained_root":"."}
     return pairs
 
+def attn_pairs():
+    pairs = {"qk_frac":1.,"qkv_bias":True,
+             "token_mlp":'leff',"attn_mode":"default",
+             "token_projection":'linear',"embed_dim":9,"nheads":2,
+             "use_state_update":False,"use_flow":True,
+             "drop_rate_proj":0.,"attn_timer":False,"nres":3,"res_ksize":5}
+    return pairs

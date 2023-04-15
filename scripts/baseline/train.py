@@ -1,8 +1,6 @@
 """
 
-Unsupervised Training with Frame2Frame
-
-Compare the impact of train/test using exact/refineimate methods
+Basic train
 
 """
 
@@ -14,7 +12,8 @@ import pandas as pd
 from easydict import EasyDict as edict
 
 # -- testing --
-from mvit.trte import train
+# from mvit.trte import train
+from dev_basics.trte import train
 
 # -- caching results --
 import cache_io
@@ -33,7 +32,10 @@ def main():
     # 100 ep = 184375 iters * 64 images/iter / 118000 images/ep
     # train.max_iter = 184375
     cfg = edict({
-        "dname":"coco",
+        "python_module":"mvit",
+        "dname":"youtube",
+        "arch_subname":"vit_l",
+        "attn_type":"stnls",
         "device":"cuda:0",
         "ndevices":1,
         "use_amp":False,
@@ -43,7 +45,12 @@ def main():
         "subdir":"baseline",
         "lr_init":0.0001,
         "weight_decay":0.,
-        "arch_subname":"vit_l",
+        "sigma":30,
+        "ws":15,
+        "wt":1,
+        "isize":"128_128",
+        "nsamples_te":3,
+        "nsamples_val":3,
     })
     results = cache_io.run_exps([cfg],train.run,#uuids=uuids,
                                 name=".cache_io/baseline/train",

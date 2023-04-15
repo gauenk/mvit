@@ -35,7 +35,7 @@ logger = logging.getLogger("detectron2")
 
 # -- local --
 import mvit
-from .test import do_test
+# from .test import do_test
 
 def run(cfg):
     """
@@ -58,7 +58,6 @@ def run(cfg):
     """
 
     # -- view --
-    print(cfg)
     pairs = {"lr_multiplier":1.,
              "chkpt_period":300,
              "chkpt_nkeep":11,
@@ -131,7 +130,7 @@ def run(cfg):
             else None,
         ]
     )
-    print(trainer)
+    # print(trainer)
     # trainer.register_hooks(
     #     [
     #         hooks.IterationTimer(),
@@ -171,8 +170,8 @@ def run(cfg):
     # -- resume --
     params = list(model.parameters())
     L = len(params)
-    params_og = [params[i].clone() for i in range(len(params))]
-    checkpointer.resume_or_load(train_info.init_checkpoint, resume=False)
+    # params_og = [params[i].clone() for i in range(len(params))]
+    # checkpointer.resume_or_load(train_info.init_checkpoint, resume=False)
     # checkpointer.resume_or_load(cfg.pretrained_path,cfg.pretrained_load)
     # checkpointer.resume_or_load(cfg.pretrained_path,cfg.pretrained_load)
     # if cfg.pretrained_load and checkpointer.has_checkpoint():
@@ -182,7 +181,7 @@ def run(cfg):
     # else:
     #     start_iter = 0
     start_iter = 0
-    print(np.mean([th.mean((params_og[i] - params[i])**2).item() for i in range(L)]))
+    # print(np.mean([th.mean((params_og[i] - params[i])**2).item() for i in range(L)]))
 
     # exit(0)
 

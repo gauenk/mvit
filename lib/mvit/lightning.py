@@ -25,6 +25,8 @@ import cache_io
 
 # # -- network --
 # import nlnet
+# from detectron2.structures import Instances
+from detectron2.utils.events import EventStorage
 
 # -- configs --
 from dev_basics.configs import ExtractConfig
@@ -95,17 +97,22 @@ class LitModel(pl.LightningModule):
         super().__init__()
         lit_cfg = init_cfg(lit_cfg).lit
         for key,val in lit_cfg.items():
+            if key in ["device"]: continue
             setattr(self,key,val)
         self.set_flow_epoch() # only for current exps; makes last 10 epochs with optical flow.
         self.net = net
+        self.net.train(True)
         self.sim_model = sim_model
         self.gen_loger = logging.getLogger('lightning')
         self.gen_loger.setLevel("NOTSET")
         self.automatic_optimization=True
 
-    def forward(self,vid):
-        flows = flow.orun(vid,self.flow,ftype=self.flow_method)
-        preds = self.net(vid,flows=flows)
+    def forward(self,vid,flows=None,gt_annos=None):
+        if flows is None:
+            flows = flow.orun(vid,self.flow,ftype=self.flow_method)
+        print("vid.shape: ",vid.shape)
+        self.net.train(True)
+        preds = self.net(vid,flows=flows,gt_annos=gt_annos)
         return preds
 
     def set_flow_epoch(self):
@@ -156,8 +163,8 @@ class LitModel(pl.LightningModule):
         # -- each sample in batch --
         loss = 0 # init @ zero
         denos,cleans = [],[]
-        ntotal = len(batch['video'])
-        nbatch = ntotal
+        ntotal = len(batch)
+        nbatch = 1#ntotal
         nbatches = (ntotal-1)//nbatch+1
         for i in range(nbatches):
             start,stop = i*nbatch,min((i+1)*nbatch,ntotal)
@@ -178,74 +185,126 @@ class LitModel(pl.LightningModule):
     def training_step_i(self, batch, start, stop):
 
         # -- unpack batch
-        noisy = batch['vid'][start:stop]/255.
+        video = batch[start]['video']/255.
+        fflow = batch[start]['fflow']
+        bflow = batch[start]['bflow']
+        annos = [Instances(batch[0]['instances'][t]) for t in range(5)]
+
+        # -- make flow --
+        if fflow.shape[-2:] == video.shape[-2:]:
+            flows = edict({"fflow":fflow,"bflow":bflow})
+        else:
+            flows = None
 
         # -- foward --
-        preds = self.forward(vid)
+        with EventStorage(0):
+            loss = self.forward(video,flows,annos)
 
-        # -- report loss --
-        loss = compute_loss(batch,preds)
-        return loss
+        # -- annos --
+        annos = batch['annos']
+
+        # -- loss --
+        loss_num = th.mean([loss[k] for k in loss])
+        return loss_num
 
     def validation_step(self, batch, batch_idx):
 
         # -- denoise --
-        vid = batch['video']/255.
+        video = batch[0]['video'][:5]/255.
+        annos = [batch[0]['instances'][t] for t in range(5)]
+
+        # -- flow --
+        fflow = batch[0]['fflow'][:5]
+        bflow = batch[0]['bflow'][:5]
+        if fflow.shape[-2:] == video.shape[-2:]:
+            flows = edict({"fflow":fflow,"bflow":bflow})
+        else:
+            flows = None
 
         # -- forward --
         gpu_mem.print_peak_gpu_stats(False,"val",reset=True)
-        with th.no_grad():
-            preds = self.forward(vid)
+        with EventStorage(0):
+            loss = self.forward(video,flows,annos)
         mem_res,mem_alloc = gpu_mem.print_peak_gpu_stats(False,"val",reset=True)
 
-        # -- loss --
-        loss = th.mean((clean - deno)**2)
-
         # -- report --
-        self.log("val_loss", loss.item(), on_step=False,
-                 on_epoch=True,batch_size=1,sync_dist=True)
+        for field in loss:
+            self.log("val_%s"%field, loss[field].item(), on_step=False,
+                     on_epoch=True, batch_size=1, sync_dist=True)
         self.log("val_mem_res", mem_res, on_step=False,
                  on_epoch=True,batch_size=1,sync_dist=True)
         self.log("val_mem_alloc", mem_alloc, on_step=False,
                  on_epoch=True,batch_size=1,sync_dist=True)
 
         # -- terminal log --
-        val_psnr = np.mean(compute_psnrs(deno,clean,div=1.)).item()
-        self.gen_loger.info("val_psnr: %2.2f" % val_psnr)
+        # val_psnr = np.mean(compute_psnrs(deno,clean,div=1.)).item()
+        # self.gen_loger.info("val_psnr: %2.2f" % val_psnr)
 
     def test_step(self, batch, batch_nb):
 
         # -- sample noise from simulator --
-        self.sample_noisy(batch)
+        # self.sample_noisy(batch)
 
         # -- denoise --
-        index = float(batch['index'][0].item())
-        noisy,clean = batch['noisy']/255.,batch['clean']/255.
+        # print(len(batch))
+        # print(type(batch))
+        # print(len(batch))
+        # print(list(batch[0].keys()))
+        index = batch[0]['image_id'].item()
+        video = batch[0]['video'][:3]/255.
+        annos = [batch[0]['instances'][t] for t in range(3)]
+        # annos = []
+        # print(type(batch['instances'][0]))
+        # print(batch['instances'][0])
+        # for t in range(video.shape[0]):
+        #     annos += [Instances(video.shape[-2:],**batch['instances'][t])]
+        # print(": ",type(batch['instances']),type(batch['instances'][0]))
+
+        # annos = [j for i in annos for j in i]
+        # print("video.shape: ",video.shape)
+        # print(len(annos))
+        # for anno in annos:
+        #     print(type(anno),len(anno))
+        #     for anno_i in anno:
+        #         print(type(anno_i),len(anno_i))
+        # print(type(annos[0][0]))
+        # print(len(annos[0]))
+        # exit(0)
+
+        # -- flow --
+        fflow = batch[0]['fflow']
+        bflow = batch[0]['bflow']
+        if fflow.shape[-2:] == video.shape[-2:]:
+            flows = edict({"fflow":fflow,"bflow":bflow})
+        else:
+            flows = None
 
         # -- forward --
         gpu_mem.print_peak_gpu_stats(False,"test",reset=True)
-        with th.no_grad():
-            deno = self.forward(noisy)
+        with EventStorage(0):
+            loss = self.forward(video,flows,annos)
         mem_res,mem_alloc = gpu_mem.print_peak_gpu_stats(False,"test",reset=True)
 
-        # -- compare --
-        loss = th.mean((clean - deno)**2)
-        psnr = np.mean(compute_psnrs(deno,clean,div=1.)).item()
-        ssim = np.mean(compute_ssims(deno,clean,div=1.)).item()
+        # -- loss --
+        # print(list(preds[0]['instances'].keys()))
+        # print(annos_exist)
+        # B,T = video.shape[:2]
+        # for b in range(B):
+        #     for t in range(T):
+        #         if annos_exist[b][t] != True: continue
+        #         loss += th.mean((preds[b][t] - annos[b][t])**2)
 
         # -- terminal log --
-        self.log("psnr", psnr, on_step=True, on_epoch=False, batch_size=1)
-        self.log("ssim", ssim, on_step=True, on_epoch=False, batch_size=1)
-        self.log("index", index,on_step=True,on_epoch=False,batch_size=1)
+        for field in loss:
+            self.log(field, loss[field].item(), on_step=True,
+                     on_epoch=False, batch_size=1)
         self.log("mem_res",  mem_res, on_step=True, on_epoch=False, batch_size=1)
         self.log("mem_alloc",  mem_alloc, on_step=True, on_epoch=False, batch_size=1)
-        self.gen_loger.info("te_psnr: %2.2f" % psnr)
 
         # -- log --
         results = edict()
-        results.test_loss = loss.item()
-        results.test_psnr = psnr
-        results.test_ssim = ssim
+        for field in loss:
+            results["test_%s"%field] = loss[field].item()
         results.test_mem_alloc = mem_alloc
         results.test_mem_res = mem_res
         results.test_index = index#.cpu().numpy().item()
