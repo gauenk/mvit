@@ -1,4 +1,3 @@
-
 # -- linalg --
 import numpy as np
 import torch as th
@@ -12,6 +11,8 @@ from easydict import EasyDict as edict
 import data_hub
 from .coco import dataloader
 from detectron2.config import LazyConfig, instantiate
+from .evaluator import inference_on_dataset
+
 
 # -- dev basics --
 # from dev_basics.report import deno_report
@@ -28,7 +29,7 @@ from dev_basics.utils.metrics import compute_psnrs,compute_ssims,compute_strred
 from dev_basics.utils import vid_io
 
 # -- segmentation eval --
-from detectron2.evaluation import YouTubeEvaluator
+from detectron2.evaluation import SemSegEvaluatorV2
 
 # -- config --
 from dev_basics.configs import ExtractConfig
@@ -91,73 +92,22 @@ def run(cfg):
 
     # -- dataset --
     data,loaders = data_hub.sets.load(cfg)
-    N = min(len(data.tr),200)
-    val_data = [data.tr[i] for i in range(N)]
-    loader = loaders["tr"]
-    # dataloader.test.total_batch_size = 1
-    # print(dataloader.test)
-    # loader = instantiate(dataloader.test)
+    # dataset = instantiate(dataloader.test)
+    loader = loaders["te"]
+    print(loader)
 
-    # -- augmented testing --
-    if tcfg.aug_test:
-        aug_fxn = partial(test_x8,model)#,use_refine=cfg.aug_refine_inds)
-    else:
-        aug_fxn = model.forward
-
-    # -- chunked processing --
-    chunk_cfg = net_chunks.extract_chunks_config(cfg)
-    if tcfg.longest_space_chunk:
-        set_longest_spatial_chunk(chunk_cfg,noisy.shape)
-    fwd_fxn = net_chunks.chunk(chunk_cfg,aug_fxn)
-    chunk_fwd = fwd_fxn
-
-    # -- eval --
-    dataset_root = data.val.root
+    # -- evaluator --
     output_dir = Path(tcfg.saved_dir) / tcfg.arch_name / str(tcfg.uuid)
-    evaluator = YouTubeEvaluator(val_data,tcfg.dname+"_train",
-                                 dataset_root,output_dir=output_dir)
-    evaluator.reset()
+    evaluator = SemSegEvaluatorV2(tcfg.dname,output_dir=output_dir)
+    # evaluator = instantiate(cfg.dataloader.evaluator)
 
-    # -- iterate over data --
-    n=0
-    for sample in val_data:#loader:
+    # -- run inference --
+    results = inference_on_dataset(model, loader, evaluator)
 
-        # -- view --
-        # print(sample)
-
-        # -- unpack --
-        vid = sample['video'].to(tcfg.device)/255.
-        flows = flow.orun(vid,False,"svnlb")
-        annos = sample['instances']
-        image_id = sample['image_id']
-
-        # -- create inputs --
-        T = vid.shape[0]
-        inputs = []
-        for t in range(T):
-            inputs.append({"instances":annos[t],
-                           "image_id":"%s_%d"%(image_id,t)})
-
-        # -- forward --
-        with th.no_grad():
-            preds = model(vid,flows,annos)
-        # print("*"*30)
-        # print("*"*30)
-        # print(preds)
-        # print(inputs)
-        # print("*"*30)
-        # exit(0)
-
-        # -- eval --
-        # evaluator.process(annos,preds)
-        evaluator.process(inputs,preds)
-        if n>=N: break
-        n+=1
-
-    # -- finalize --
-    res = evaluator.evaluate()
-    print(res)
+    # -- view --
+    print(results)
+    print("-"*30)
+    print("Format me.")
     exit(0)
-    return edict(res)
 
-
+    return results

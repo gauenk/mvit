@@ -110,8 +110,7 @@ class LitModel(pl.LightningModule):
     def forward(self,vid,flows=None,gt_annos=None):
         if flows is None:
             flows = flow.orun(vid,self.flow,ftype=self.flow_method)
-        print("vid.shape: ",vid.shape)
-        self.net.train(True)
+        if not(gt_annos is None): self.net.train(True)
         preds = self.net(vid,flows=flows,gt_annos=gt_annos)
         return preds
 
@@ -188,7 +187,7 @@ class LitModel(pl.LightningModule):
         video = batch[start]['video']/255.
         fflow = batch[start]['fflow']
         bflow = batch[start]['bflow']
-        annos = [Instances(batch[0]['instances'][t]) for t in range(5)]
+        annos = batch[start]['instances']
 
         # -- make flow --
         if fflow.shape[-2:] == video.shape[-2:]:
@@ -200,22 +199,19 @@ class LitModel(pl.LightningModule):
         with EventStorage(0):
             loss = self.forward(video,flows,annos)
 
-        # -- annos --
-        annos = batch['annos']
-
         # -- loss --
-        loss_num = th.mean([loss[k] for k in loss])
+        loss_num = sum([loss[k] for k in loss])
         return loss_num
 
     def validation_step(self, batch, batch_idx):
 
         # -- denoise --
-        video = batch[0]['video'][:5]/255.
-        annos = [batch[0]['instances'][t] for t in range(5)]
+        video = batch[0]['video']/255.
+        annos = batch[0]['instances']
 
         # -- flow --
-        fflow = batch[0]['fflow'][:5]
-        bflow = batch[0]['bflow'][:5]
+        fflow = batch[0]['fflow']
+        bflow = batch[0]['bflow']
         if fflow.shape[-2:] == video.shape[-2:]:
             flows = edict({"fflow":fflow,"bflow":bflow})
         else:
@@ -228,7 +224,12 @@ class LitModel(pl.LightningModule):
         mem_res,mem_alloc = gpu_mem.print_peak_gpu_stats(False,"val",reset=True)
 
         # -- report --
+        val_loss = sum([v.item() for k,v in loss.items()])
+        # print("val_loss: ",val_loss)
+        self.log("val_loss", val_loss, on_step=False,
+                 on_epoch=True,batch_size=1,sync_dist=True)
         for field in loss:
+            # print(loss[field].item())
             self.log("val_%s"%field, loss[field].item(), on_step=False,
                      on_epoch=True, batch_size=1, sync_dist=True)
         self.log("val_mem_res", mem_res, on_step=False,
@@ -250,9 +251,9 @@ class LitModel(pl.LightningModule):
         # print(type(batch))
         # print(len(batch))
         # print(list(batch[0].keys()))
-        index = batch[0]['image_id'].item()
-        video = batch[0]['video'][:3]/255.
-        annos = [batch[0]['instances'][t] for t in range(3)]
+        index = batch[0]['image_index']
+        video = batch[0]['video']/255.
+        annos = batch[0]['instances']
         # annos = []
         # print(type(batch['instances'][0]))
         # print(batch['instances'][0])
